@@ -55,8 +55,8 @@ There's one snag with the IO pins. To make wiring easier, we want to use PA15 wh
 Here's how we remap the pin.
 
 ```rust
-        let mut afio = device.AFIO.constrain(&mut rcc.apb2);
-        let (pa15, _, _) = MAPR::disable_jtag(&mut afio.mapr, pins_a.pa15, pins_b.pb3, pins_b.pb4);
+let mut afio = device.AFIO.constrain(&mut rcc.apb2);
+let (pa15, _, _) = MAPR::disable_jtag(&mut afio.mapr, pins_a.pa15, pins_b.pb3, pins_b.pb4);
 ```
 
 We give `disable_jtag` the pin we got from `split`ing gpioa, and it returns us a nice shiny generic pin, we can use like the others.
@@ -66,9 +66,9 @@ We give `disable_jtag` the pin we got from `split`ing gpioa, and it returns us a
 The most important new thing we will need is a timer to continually refresh the display. This means we'll want a new RTIC task. We'll set up TIM1, a generic timer to invoke our interrupt at a particular refresh rate.
 
 ```rust
-        let mut refresh_timer =
-            Timer::tim1(device.TIM1, &clocks, &mut rcc.apb2).start_count_down(280.hz());
-        refresh_timer.listen(Event::Update);
+let mut refresh_timer =
+    Timer::tim1(device.TIM1, &clocks, &mut rcc.apb2).start_count_down(280.hz());
+refresh_timer.listen(Event::Update);
 ```
 
 We'll display a single digit of our display on each invocation of the interrupt, so four invocations will be a full cycle. We'll want at least 4 × 60hz, but 60hz is a bit annoying if you're moving your head, so let's go with 4 × 70hz, so 280hz. You can slow that right down to a few hertz to see exactly what is going on when you're debugging.
@@ -93,21 +93,21 @@ We're making use of `on()` and `off()` from `switch_hal` that I mentioned, to ma
 Here's our new set of shared resources:
 
 ```rust
-    struct Resources {
-        i2c: I2C1,
-        display: Display,
-        refresh_timer: CountDownTimer<TIM1>,
-        #[init([0,0,0,0])]
-        display_buffer: [u8; MESSAGE_LENGTH],
-    }
+struct Resources {
+    i2c: I2C1,
+    display: Display,
+    refresh_timer: CountDownTimer<TIM1>,
+    #[init([0,0,0,0])]
+    display_buffer: [u8; MESSAGE_LENGTH],
+}
 ```
 
 The i2c event task will fill the display buffer, which will be shared with our display task.
 
 ```rust
-    #[task(binds = I2C1_EV, resources = [i2c, display_buffer], priority = 2)]
+#[task(binds = I2C1_EV, resources = [i2c, display_buffer], priority = 2)]
 
-    #[task(binds = TIM1_UP, resources = [refresh_timer, display, display_buffer], priority = 1)]
+#[task(binds = TIM1_UP, resources = [refresh_timer, display, display_buffer], priority = 1)]
 ```
 
 The `i2c` device, the `display` and the `refresh_timer` are initialized by init and only used in one task each, so we don't need to worry about synchronization. The data we want to display will be shared in `display_buffer`. We want to read our incoming data right away, so we'll give the I²C task a higher priority than our display refresh timer. Since our `display_buffer` is shared between tasks with two different priorities, in the lower priority task, where we can be preempted, RTIC will give us a mutex proxy object we can use to access the resource. We'll ignore the fact that in this very particular case, our 4 bytes of data should be in a single, aligned machine word, so our access should be atomic anyway. This code will continue to work if we were to add a byte to our buffer. 
@@ -147,39 +147,39 @@ RTIC and the Rust compiler will help us keep track of where we need mutually exc
 We'll clear at the beginning of the transaction.
 
 ```rust
-        if sr1.addr().bit_is_set() {
-            *READ_COUNT = 0;
-            *PAYLOAD = [0; MESSAGE_LENGTH];
-            i2c.sr1.read();
-            i2c.sr2.read();
-        }
+if sr1.addr().bit_is_set() {
+    *READ_COUNT = 0;
+    *PAYLOAD = [0; MESSAGE_LENGTH];
+    i2c.sr1.read();
+    i2c.sr2.read();
+}
 ```
 
 We'll ignore extra bytes if the host sends too many.
 
 ```rust
-        if sr1.rx_ne().bit_is_set() {
-            let rx = i2c.dr.read();
-            if *READ_COUNT < MESSAGE_LENGTH {
-                PAYLOAD[*READ_COUNT] = rx.bits() as u8;
-            }
-            *READ_COUNT += 1;
-        }
+if sr1.rx_ne().bit_is_set() {
+    let rx = i2c.dr.read();
+    if *READ_COUNT < MESSAGE_LENGTH {
+        PAYLOAD[*READ_COUNT] = rx.bits() as u8;
+    }
+    *READ_COUNT += 1;
+}
 ```
 
 We'll write to the buffer at the end of the message.
 
 ```rust
-    if sr1.stopf().bit_is_set() {
-        if *READ_COUNT > 0 {
-            *display_buffer = *PAYLOAD;
-        }
-        i2c.sr1.read();
-        i2c.cr1.modify(|_, w| {
-            w.ack().set_bit();
-            w.stop().clear_bit()
-        });
+if sr1.stopf().bit_is_set() {
+    if *READ_COUNT > 0 {
+        *display_buffer = *PAYLOAD;
     }
+    i2c.sr1.read();
+    i2c.cr1.modify(|_, w| {
+        w.ack().set_bit();
+        w.stop().clear_bit()
+    });
+}
 ```
 
 ### Using the display
@@ -233,9 +233,9 @@ We don't show up because while we do respond with the ACK signal when we match o
 To handle this, all we need to do is reply when transmit is expected (TX_E), and the byte transfer is not finished (BTF).
 
 ```rust
-        if sr1.tx_e().bit_is_set() && sr1.btf().bit_is_clear() {
-            i2c.dr.write(|w| w.dr().bits(4));
-        }
+if sr1.tx_e().bit_is_set() && sr1.btf().bit_is_clear() {
+    i2c.dr.write(|w| w.dr().bits(4));
+}
 ```
 
 Let's reply with 4. 4 is a good number.

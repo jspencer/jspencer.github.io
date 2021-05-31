@@ -116,18 +116,18 @@ I'll have more to say about RTIC later.
 ### Device Initialization
 
 ```rust
-        let device: stm32f1xx_hal::stm32::Peripherals = c.device;
-        let mut rcc = device.RCC.constrain();
-        let mut flash = device.FLASH.constrain();
+let device: stm32f1xx_hal::stm32::Peripherals = c.device;
+let mut rcc = device.RCC.constrain();
+let mut flash = device.FLASH.constrain();
 
-        let _clocks = rcc
-            .cfgr
-            .use_hse(8.mhz())
-            .hclk(24.mhz())
-            .sysclk(24.mhz())
-            .pclk1(12.mhz())
-            .pclk2(12.mhz())
-            .freeze(&mut flash.acr);
+let _clocks = rcc
+    .cfgr
+    .use_hse(8.mhz())
+    .hclk(24.mhz())
+    .sysclk(24.mhz())
+    .pclk1(12.mhz())
+    .pclk2(12.mhz())
+    .freeze(&mut flash.acr);
 ```
 
 Here we take ownership over the device peripherals. `Peripherals` is a singleton with mostly [zero sized types](https://docs.rust-embedded.org/book/static-guarantees/zero-cost-abstractions.html) only used at compile time to let us know when we have done something inconsistent.
@@ -147,17 +147,17 @@ Ignoring all the [support circuitry on the blue pill development board](https://
 Let's set up our I/O accordingly
 
 ```rust
-    let mut gpioa = device.GPIOA.split(&mut rcc.apb2);
-    let leds = [
-        gpioa.pa0.into_push_pull_output(&mut gpioa.crl).downgrade(),
-        gpioa.pa1.into_push_pull_output(&mut gpioa.crl).downgrade(),
-        gpioa.pa2.into_push_pull_output(&mut gpioa.crl).downgrade(),
-        gpioa.pa3.into_push_pull_output(&mut gpioa.crl).downgrade(),
-        gpioa.pa4.into_push_pull_output(&mut gpioa.crl).downgrade(),
-        gpioa.pa5.into_push_pull_output(&mut gpioa.crl).downgrade(),
-        gpioa.pa6.into_push_pull_output(&mut gpioa.crl).downgrade(),
-        gpioa.pa7.into_push_pull_output(&mut gpioa.crl).downgrade(),
-    ];
+let mut gpioa = device.GPIOA.split(&mut rcc.apb2);
+let leds = [
+    gpioa.pa0.into_push_pull_output(&mut gpioa.crl).downgrade(),
+    gpioa.pa1.into_push_pull_output(&mut gpioa.crl).downgrade(),
+    gpioa.pa2.into_push_pull_output(&mut gpioa.crl).downgrade(),
+    gpioa.pa3.into_push_pull_output(&mut gpioa.crl).downgrade(),
+    gpioa.pa4.into_push_pull_output(&mut gpioa.crl).downgrade(),
+    gpioa.pa5.into_push_pull_output(&mut gpioa.crl).downgrade(),
+    gpioa.pa6.into_push_pull_output(&mut gpioa.crl).downgrade(),
+    gpioa.pa7.into_push_pull_output(&mut gpioa.crl).downgrade(),
+];
 ```
 
 Our leds are all on pins connected to the same general purpose I/O port, GPIOA. This means they are all controlled by a single register. For this particular display, we could set all of our LEDs at once with a single write, and maybe I'll try that later. Most of the time that's not the best option. Most of the time we want to control each pin individually, hence the `split()` function above, that returns a structure that gives us access to the individual pins. 
@@ -170,9 +170,9 @@ As you can see from the datasheet, or from this nice colorful pinout diagram mos
 Since the pins on the device have multiple functions, the types of our pin references reflect that. In the code above we set our LED pins to [push pull output](https://en.wikipedia.org/wiki/Push%E2%80%93pull_output) and then call `downgrade()` which erases the specific type and gives us a `Pxx` generic output pin that we can put into an array.
 
 ```rust
-        let mut gpiob = device.GPIOB.split(&mut rcc.apb2);
-        let _scl = gpiob.pb6.into_alternate_open_drain(&mut gpiob.crl);
-        let _sda = gpiob.pb7.into_alternate_open_drain(&mut gpiob.crl);
+let mut gpiob = device.GPIOB.split(&mut rcc.apb2);
+let _scl = gpiob.pb6.into_alternate_open_drain(&mut gpiob.crl);
+let _sda = gpiob.pb7.into_alternate_open_drain(&mut gpiob.crl);
 ```
 
 We're using the first I²C interface `I2C1`, so we'll need to use pins PB6 and PB7. PB6 will be the clock signal, and PB7 will be the data. If you think about it, because of clock stretching, we're also letting some data, data about back pressure, sneak into the clock signal.
@@ -186,8 +186,8 @@ You'll notice that this is the only place we refer to our *scl* and *sda* pins. 
 No matter! We still have all the tools we need to configure it how we want. So let's get to that. And maybe once I take a closer look at the abstractions in the HAL, I'll contribute a PR to add functionality there.
 
 ```rust
-        I2C1::enable(&mut rcc.apb1);
-        I2C1::reset(&mut rcc.apb1);
+I2C1::enable(&mut rcc.apb1);
+I2C1::reset(&mut rcc.apb1);
 ```
 
 Here we enable the interface and reset it to a known state. It's also not a bad idea to look both ways when crossing a one-way street.
@@ -197,20 +197,20 @@ Here we enable the interface and reset it to a known state. It's also not a bad 
 To configure the interface correctly we'll need to read the datasheet even closer. (It's actually the Reference Manual, the datasheet concerns itself with more direct electrical and physical characteristics, but it's the weekend, so I'm calling it the datasheet.) We'll need to modify the contents of a few registers: I2C_CR1, I2C_CR2, and I2C_OAR1. The [peripheral access crates](https://github.com/stm32-rs/stm32-rs) are created based on vendor-provided description files, and provide structures we can use to access each register, named fields of the register, and the starting value at reset.
 
 ```rust
-    i2c.cr1.write(|w| w.pe().clear_bit());
+i2c.cr1.write(|w| w.pe().clear_bit());
 
-    // Interrupt enable for I2C
-    i2c.cr2.write(|w| w.itevten().set_bit());
+// Interrupt enable for I2C
+i2c.cr2.write(|w| w.itevten().set_bit());
 
-    // Since we are using a 7-bit address we need to shift it into bits 1:7 of OAR1:ADD
-    i2c.oar1
-        .write(|w| w.add().bits((OUR_I2C_ADDRESS as u16) << 1));
+// Since we are using a 7-bit address we need to shift it into bits 1:7 of OAR1:ADD
+i2c.oar1
+    .write(|w| w.add().bits((OUR_I2C_ADDRESS as u16) << 1));
 
-    // Enable i2c peripheral
-    i2c.cr1.modify(|_, w| w.pe().set_bit());
-    
-    // ACK must be set after the peripheral is enabled or it will be ignored
-    i2c.cr1.modify(|_, w| w.ack().set_bit());
+// Enable i2c peripheral
+i2c.cr1.modify(|_, w| w.pe().set_bit());
+
+// ACK must be set after the peripheral is enabled or it will be ignored
+i2c.cr1.modify(|_, w| w.ack().set_bit());
 ```
 
 First we need to disable the peripheral by clearing the PE bit in CR1. If we don't do this, the reset of our setup will be ignored. I know this because of how carefully I read the datasheet, not because I tried it of course.
@@ -279,15 +279,15 @@ Since the whole point of these registers is that their content will change outsi
 Similarly, we would not want to do the following:
 
 ```rust
-        if i2c.sr1.read().addr().bit_is_set() {
-            // ...
-        }
-        if i2c.sr1.read().stopf().bit_is_set() {
-            // ...
-        }
-        if i2c.sr1.read().rx_ne().bit_is_set() {
-            // ...
-        }
+if i2c.sr1.read().addr().bit_is_set() {
+    // ...
+}
+if i2c.sr1.read().stopf().bit_is_set() {
+    // ...
+}
+if i2c.sr1.read().rx_ne().bit_is_set() {
+    // ...
+}
 ```
 
 We might expect the compiler to optimize away the extra reads if these were not volatile locations, but here, if we were to do this, each call would perform a read of the register. Not only would this be inefficient, it would also be incorrect. Since our reads and writes have side effects, we need to be mindful of when they happen.
@@ -297,10 +297,10 @@ When we do `let sr1 = i2c.sr1.read();` we have a proxy object containing the rea
 To modify particular fields of a register, leaving the other fields as-is we do this:
 
 ```rust
-        i2c.cr1.modify(|r, w| {
-            w.ack().set_bit();
-            w.stop().set_bit()
-        });
+i2c.cr1.modify(|r, w| {
+    w.ack().set_bit();
+    w.stop().set_bit()
+});
 ```
 
 `modify` takes a closure that gives us the pre-modification state with value `r`. We write the new value with `w` which lets us specify field by field but when invoked, does a single read, modify and single write. For more, see the documentation in [svd2rust](https://docs.rs/svd2rust/0.19.0/svd2rust/index.html#read--modify--write-api) 
