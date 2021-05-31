@@ -1,0 +1,7 @@
+{% extends "index.html" %}
+{% block title %}404: Page not found{%endblock title %}
+
+{% block content %}
+<h1>404: Yahaha! You found me! Not the page you were looking for. <a href="{{ config.base_url | safe }}/">Head out of the woods</a> to try finding it again.</h1>
+<img src="{{ config.base_url | safe }}/nevins-korok.jpeg" alt="Korok by Nev" width="100%" style="max-width:100%;">
+{% endblock content %}
