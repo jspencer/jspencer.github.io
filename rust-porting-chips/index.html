@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Porting Rust Microtetris &middot; Prototypica</title>
+    <meta name="description" content="A blog about hardware and software." />
+    <link rel="shortcut icon"  href="https://proto.typi.ca/favicon.ico" />
+    <link rel="alternate" type="application/rss+xml" title="RSS" href="https:&#x2F;&#x2F;proto.typi.ca&#x2F;rss.xml">
+
+    <style>html,body{background:#f5f5ef;color:#382f21;font-family:-apple-system,blinkmacsystemfont,"Helvetica Neue","Helvetica","Segoe UI",roboto,oxygen-sans,ubuntu,cantarell,"Helvetica Neue",sans-serif}a,a:visited{color:darkred;text-decoration:none}a:hover{text-decoration:underline}p{font-size:1rem;line-height:1.5em}main{margin:auto;max-width:54rem;padding:0.8rem}pre{background:white;overflow:auto;padding:1rem}pre code{background-color:unset;line-height:1.5em}code{background-color:#f3ede2}blockquote{background-color:#e4fbe0;border-color:#bef4b3;padding:2rem}@media (max-width: 1000px){blockquote{padding:4px;margin:0}}td{border:1px solid #2d2d2d;padding:10px}img{height:auto;max-width:100%}.homepage-list{list-style:none;padding:1rem 0}.homepage-list li{align-items:center;display:flex;flex-wrap:wrap;justify-content:space-between;margin-bottom:10px}@media (max-width: 38rem){.homepage-list li a{width:100%}}.icon{display:inline-block;width:1em;height:1em;stroke-width:0;stroke:currentColor;fill:currentColor}.related{padding-top:2rem;padding-bottom:2rem}.related-posts{padding-left:0;list-style:none;display:flex;justify-content:space-between}.related-posts li{flex:1}.related-posts li.next{text-align:right}.related-posts h3{margin-top:0}.related-posts li small{font-size:75%;color:#382f21}.related-posts li small{color:inherit}
+</style>
+
+    <meta property="og:site_name" content="Prototypica">
+      <meta name="author" content="Jason Spencer" />
+      <meta property="og:title" content="Porting Rust Microtetris">
+      <meta property="og:description" content="">
+      <meta property="og:url" content="https://proto.typi.ca/rust-porting-chips/">
+      <meta property="og:image" content="">
+
+      <meta property="og:type" content="article" />
+        <meta property="article:published_time" content="2021-06-06T00:00:00+00:00" />
+
+      <link rel="prev" href="https://proto.typi.ca/late-night-latches/" />
+      
+    
+
+  </head>
+  
+
+  <body>
+    <main id="main" role="main">
+
+      
+      <header role="banner">
+        <h3 style="margin-top:0;">
+          <a href="https://proto.typi.ca" title="Home">Prototypica</a>
+          <br /><small>A blog about hardware and software.</small>
+        </h3>
+      </header>
+      <hr />
+      
+
+      
+<article>
+  <h1>Porting Rust Microtetris</h1>
+
+  
+    <p style="font-size:90%;"><time datetime="2021-06-06T00:00:00+00:00">June 06, 2021</time> — <a href="https://twitter.com/needtungsten">Jason Spencer</a></p>
+  
+
+  <p>I wanted to try <a href="http://marekmiettinen.fi/micropong/index.html">Marek Miettinen's microtetris</a> but I didn't have a Cortex-M0 chip (ThumbV6). I decided to try porting it to M4 (ThumbV7).</p>
+<p>I was impressed with how straightforward this was. After a bit of a discussion with the compiler, everything worked on the first try. The architecture and peripherals of the two chips are very similar, so it was not a huge deal, but as you can see, <a href="https://github.com/jspencer/micropong/commit/421ccc1860495c121f5b9a3d3de9bef7eb9cc756">the diff</a> is not trivial either.</p>
+<p>I didn't spend any time debugging. With so many of the invariants specified using the Rust type system, I didn't need to. I probably did spend more time getting it to compile than I would have done in C, but once I flashed it to the device, I was directly on to thinking about improvements. </p>
+<p>This code only polls for button presses during part of the game loop, and the controls feel a bit unresponsive. It could probably do with an interrupt routine just for the controls. Doing so would probably require adding explicit button debouncing.</p>
+<p>The point is, if I had been doing this in C I surely would have missed something. I'd be spending this time debugging some code I had not written and had never seen run correctly.</p>
+<p>Don't get me wrong, there are still plenty of ways to write embedded code in Rust that doesn't work. For example, I had many builds of <a href="https://proto.typi.ca/making-custom-i2c-displays/">this</a> that just plain did nothing. There are also always going to be those times when you're fiddling with the hardware for what will turn out to be a software problem, and vice versa.</p>
+<p>There are other rough edges. The generated code constraining these features is pretty cumbersome. For more on that, see the example in therealprof's post on <a href="https://therealprof.github.io/blog/roadmap-2021-arbitrary-size-primitives/">arbitrary integer primitives</a>.</p>
+<p>In general however, I think this type of reduction in friction is really important. I spend a lot of time in large codebases, where you spend much more time debugging and managing interactions with existing code than you do writing truly new code. The more that your tools can help ensure the continued correctness of what you have already written, the better. It frees up time and gives you the confidence to change and improve things in ways you would have otherwise avoided.</p>
+<p>Check out the code <a href="https://github.com/jspencer/micropong">here</a>.</p>
+<p>Further reading: I came across <a href="https://www.ecorax.net/as-above-so-below-1/">this post</a> by Pablo Mansanet that has a similar sentiment and goes into much more detail.</p>
+
+</article>
+<div class="related">
+  <ul class="related-posts">
+    <li class="previous">
+      
+      <div>⟻ Earlier </div>
+      <a href="https:&#x2F;&#x2F;proto.typi.ca&#x2F;late-night-latches&#x2F;">Late Night Latches</a>
+      
+    </li>
+    <li class="next">
+      
+    </li>
+  </ul>
+</div>
+
+
+      
+      <footer role="contentinfo">
+        <hr />
+        
+        
+        <small>
+          <a href="/rss.xml"><svg class="icon" width="32" height="32" viewBox="0 0 32 32">
+            <title>rss</title>
+            <path d="M4.259 23.467c-2.35 0-4.259 1.917-4.259 4.252 0 2.349 1.909 4.244 4.259 4.244 2.358 0 4.265-1.895 4.265-4.244-0-2.336-1.907-4.252-4.265-4.252zM0.005 10.873v6.133c3.993 0 7.749 1.562 10.577 4.391 2.825 2.822 4.384 6.595 4.384 10.603h6.16c-0-11.651-9.478-21.127-21.121-21.127zM0.012 0v6.136c14.243 0 25.836 11.604 25.836 25.864h6.152c0-17.64-14.352-32-31.988-32z"></path>
+          </svg> RSS Feed</a><br />
+        </small>
+        <small>Built with <a href="https://www.getzola.org/">Zola</a>.<br />
+          
+        </small>
+        
+      </footer>
+      
+
+    </main>
+    
+    
+  </body>
+</html>
+

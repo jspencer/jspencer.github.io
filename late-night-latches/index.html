@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+  
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Late Night Latches &middot; Prototypica</title>
+    <meta name="description" content="A blog about hardware and software." />
+    <link rel="shortcut icon"  href="https://proto.typi.ca/favicon.ico" />
+    <link rel="alternate" type="application/rss+xml" title="RSS" href="https:&#x2F;&#x2F;proto.typi.ca&#x2F;rss.xml">
+
+    <style>html,body{background:#f5f5ef;color:#382f21;font-family:-apple-system,blinkmacsystemfont,"Helvetica Neue","Helvetica","Segoe UI",roboto,oxygen-sans,ubuntu,cantarell,"Helvetica Neue",sans-serif}a,a:visited{color:darkred;text-decoration:none}a:hover{text-decoration:underline}p{font-size:1rem;line-height:1.5em}main{margin:auto;max-width:54rem;padding:0.8rem}pre{background:white;overflow:auto;padding:1rem}pre code{background-color:unset;line-height:1.5em}code{background-color:#f3ede2}blockquote{background-color:#e4fbe0;border-color:#bef4b3;padding:2rem}@media (max-width: 1000px){blockquote{padding:4px;margin:0}}td{border:1px solid #2d2d2d;padding:10px}img{height:auto;max-width:100%}.homepage-list{list-style:none;padding:1rem 0}.homepage-list li{align-items:center;display:flex;flex-wrap:wrap;justify-content:space-between;margin-bottom:10px}@media (max-width: 38rem){.homepage-list li a{width:100%}}.icon{display:inline-block;width:1em;height:1em;stroke-width:0;stroke:currentColor;fill:currentColor}.related{padding-top:2rem;padding-bottom:2rem}.related-posts{padding-left:0;list-style:none;display:flex;justify-content:space-between}.related-posts li{flex:1}.related-posts li.next{text-align:right}.related-posts h3{margin-top:0}.related-posts li small{font-size:75%;color:#382f21}.related-posts li small{color:inherit}
+</style>
+
+    <meta property="og:site_name" content="Prototypica">
+      <meta name="author" content="Jason Spencer" />
+      <meta property="og:title" content="Late Night Latches">
+      <meta property="og:description" content="">
+      <meta property="og:url" content="https://proto.typi.ca/late-night-latches/">
+      <meta property="og:image" content="">
+
+      <meta property="og:type" content="article" />
+        <meta property="article:published_time" content="2021-06-04T00:00:00+00:00" />
+
+      <link rel="prev" href="https://proto.typi.ca/rust-i2c-vfd/" />
+      <link rel="next" href="https://proto.typi.ca/rust-porting-chips/" />
+    
+
+  </head>
+  
+
+  <body>
+    <main id="main" role="main">
+
+      
+      <header role="banner">
+        <h3 style="margin-top:0;">
+          <a href="https://proto.typi.ca" title="Home">Prototypica</a>
+          <br /><small>A blog about hardware and software.</small>
+        </h3>
+      </header>
+      <hr />
+      
+
+      
+<article>
+  <h1>Late Night Latches</h1>
+
+  
+    <p style="font-size:90%;"><time datetime="2021-06-04T00:00:00+00:00">June 04, 2021</time> — <a href="https://twitter.com/needtungsten">Jason Spencer</a></p>
+  
+
+  <h3 id="the-setting">The Setting</h3>
+<p>If you're like me, you'll enjoy a little late night soldering to relax and get away from screens for a while.</p>
+<p>A good pairing I can recommend for this is to put on a YouTube video by <a href="https://www.youtube.com/user/bigclivedotcom">BigClive</a>. His videos are fun and informative, they are calmly presented, so you don't have to be watching the screen the entire time, and he has a great voice. You'll learn more about LEDs, power supplies, and ion generators than you ever thought you wanted to know.</p>
+<h3 id="latches">Latches</h3>
+<p>Latches are a basic building-block for computing. With a latch, you can build a flip-flop. With a bunch of those, you can build a register, SRAM, all kinds of good stuff.</p>
+<p>It's fun to build things like this to get a feel for how they work in practice.</p>
+<p>Here's a very simple latch using an SCR. (AKA <a href="https://en.wikipedia.org/wiki/Thyristor">thyristor</a>.)</p>
+<p><img src="/SCR-latch-schematic.png" alt="SCR Latch Schematic" /></p>
+<p>Except for maybe <a href="https://hackaday.io/project/7975-one-transistor-latch">one weird trick</a>, you can't make a latch using a single transistor. When you remove current from the base, current ceases to flow from the collector to the emitter.</p>
+<p>An SCR, with an additional P-N junction, is a little different. You can apply a pulse to the gate, allowing current to flow through the component like a diode. The continuous current flow keeps the pathway open.</p>
+<p>As you can see in the schematic, to reset this latch, you can break the current flow by pressing the normally closed switch. After you release the button, current won't flow until you trigger the gate again.</p>
+<p>This is great for turning on and off this... I think it's a Christmas tree bulb. I'm not sure where this lamp came from.</p>
+<p><img src="/SCR-latch-lamp.jpeg" alt="SCR Latch and Sky Bison" /></p>
+<p>It's maybe not great for a digital circuit however. As soon as you remove the load, it unlatches.</p>
+<p>For example, here's the same basic circuit with a novelty blinking LED. (I skimped on the switches. It was late, remember. Bare wires are switches.) </p>
+<p><img src="/SCR-latch-LED.jpeg" alt="Appa watching a blinky" /></p>
+<p>This is an RGB LED that offers no control, it has internal circuitry that runs through a cycle of blinking color patterns.</p>
+<p>When the LED reaches the end of its first cycle, <strong>sometimes</strong> it unlatches. It's unreliable. Sometimes the current is low enough that the path through the SCR can't be sustained. Maybe it depends on temperature, maybe there is variability in the timing of the LED patterns, who knows.</p>
+<p>Let's try another latch.</p>
+<p><img src="/OR-gate-feedback-latch-schematic.png" alt="OR Gate Feedback Latch Schematic" /></p>
+<p>This one uses a single OR gate of a 74LS32. When we drive pin 1 positive, the gate turns on, and the feedback from the output to the second input keeps the gate open, and we have our latch. It's not shown on the schematic, but you can reset the latch by breaking the feedback connection.</p>
+<p><img src="/OR-gate-latch.jpeg" alt="Sorry about the floating inputs" /></p>
+<p>With this circuit, we can remove the load without changing the state of our latch.</p>
+<p>One thing this latch also demonstrated is the importance of decoupling capacitors. (There's a 0.1µF capacitor behind the chip there, I didn't know I was going to be photographing this.) When I was testing the circuit on a breadboard I was getting false triggering when connecting power and other glitches. After adding the bypass cap, this issue went away. More on that <a href="https://www.vagrearg.org/content/decoupling">here</a>.</p>
+<p>I should note that I'm a Software Engineer who likes to experiment, not an Electrical Engineer. Let me know if I've made any mistakes!</p>
+
+</article>
+<div class="related">
+  <ul class="related-posts">
+    <li class="previous">
+      
+      <div>⟻ Earlier </div>
+      <a href="https:&#x2F;&#x2F;proto.typi.ca&#x2F;rust-i2c-vfd&#x2F;">I²C VFD Display using Rust on an Arm Cortex MCU</a>
+      
+    </li>
+    <li class="next">
+      
+      <div> Later ⟼</div>
+      <a href="https:&#x2F;&#x2F;proto.typi.ca&#x2F;rust-porting-chips&#x2F;">Porting Rust Microtetris</a>
+      
+    </li>
+  </ul>
+</div>
+
+
+      
+      <footer role="contentinfo">
+        <hr />
+        
+        
+        <small>
+          <a href="/rss.xml"><svg class="icon" width="32" height="32" viewBox="0 0 32 32">
+            <title>rss</title>
+            <path d="M4.259 23.467c-2.35 0-4.259 1.917-4.259 4.252 0 2.349 1.909 4.244 4.259 4.244 2.358 0 4.265-1.895 4.265-4.244-0-2.336-1.907-4.252-4.265-4.252zM0.005 10.873v6.133c3.993 0 7.749 1.562 10.577 4.391 2.825 2.822 4.384 6.595 4.384 10.603h6.16c-0-11.651-9.478-21.127-21.121-21.127zM0.012 0v6.136c14.243 0 25.836 11.604 25.836 25.864h6.152c0-17.64-14.352-32-31.988-32z"></path>
+          </svg> RSS Feed</a><br />
+        </small>
+        <small>Built with <a href="https://www.getzola.org/">Zola</a>.<br />
+          
+        </small>
+        
+      </footer>
+      
+
+    </main>
+    
+    
+  </body>
+</html>
+

@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+  
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Rust I²C Bubble Display &middot; Prototypica</title>
+    <meta name="description" content="A blog about hardware and software." />
+    <link rel="shortcut icon"  href="https://proto.typi.ca/favicon.ico" />
+    <link rel="alternate" type="application/rss+xml" title="RSS" href="https:&#x2F;&#x2F;proto.typi.ca&#x2F;rss.xml">
+
+    <style>html,body{background:#f5f5ef;color:#382f21;font-family:-apple-system,blinkmacsystemfont,"Helvetica Neue","Helvetica","Segoe UI",roboto,oxygen-sans,ubuntu,cantarell,"Helvetica Neue",sans-serif}a,a:visited{color:darkred;text-decoration:none}a:hover{text-decoration:underline}p{font-size:1rem;line-height:1.5em}main{margin:auto;max-width:54rem;padding:0.8rem}pre{background:white;overflow:auto;padding:1rem}pre code{background-color:unset;line-height:1.5em}code{background-color:#f3ede2}blockquote{background-color:#e4fbe0;border-color:#bef4b3;padding:2rem}@media (max-width: 1000px){blockquote{padding:4px;margin:0}}td{border:1px solid #2d2d2d;padding:10px}img{height:auto;max-width:100%}.homepage-list{list-style:none;padding:1rem 0}.homepage-list li{align-items:center;display:flex;flex-wrap:wrap;justify-content:space-between;margin-bottom:10px}@media (max-width: 38rem){.homepage-list li a{width:100%}}.icon{display:inline-block;width:1em;height:1em;stroke-width:0;stroke:currentColor;fill:currentColor}.related{padding-top:2rem;padding-bottom:2rem}.related-posts{padding-left:0;list-style:none;display:flex;justify-content:space-between}.related-posts li{flex:1}.related-posts li.next{text-align:right}.related-posts h3{margin-top:0}.related-posts li small{font-size:75%;color:#382f21}.related-posts li small{color:inherit}
+</style>
+
+    <meta property="og:site_name" content="Prototypica">
+      <meta name="author" content="Jason Spencer" />
+      <meta property="og:title" content="Rust I²C Bubble Display">
+      <meta property="og:description" content="">
+      <meta property="og:url" content="https://proto.typi.ca/rust-i2c-bubble-display/">
+      <meta property="og:image" content="">
+
+      <meta property="og:type" content="article" />
+        <meta property="article:published_time" content="2021-05-14T00:00:00+00:00" />
+
+      <link rel="prev" href="https://proto.typi.ca/making-custom-i2c-displays/" />
+      <link rel="next" href="https://proto.typi.ca/rust-i2c-vfd/" />
+    
+
+  </head>
+  
+
+  <body>
+    <main id="main" role="main">
+
+      
+      <header role="banner">
+        <h3 style="margin-top:0;">
+          <a href="https://proto.typi.ca" title="Home">Prototypica</a>
+          <br /><small>A blog about hardware and software.</small>
+        </h3>
+      </header>
+      <hr />
+      
+
+      
+<article>
+  <h1>Rust I²C Bubble Display</h1>
+
+  
+    <p style="font-size:90%;"><time datetime="2021-05-14T00:00:00+00:00">May 14, 2021</time> — <a href="https://twitter.com/needtungsten">Jason Spencer</a></p>
+  
+
+  <p>In the <a href="https://proto.typi.ca/making-custom-i2c-displays/">previous post</a> we looked at a simple LED bar display. This time we have a tiny 7-segment bubble display.</p>
+<p><img src="/bubble-display.jpeg" alt="LED Bubble Display" /></p>
+<p>Let's first decide how we're hooking this up. To reduce the number of pins, displays like these are usually wired internally so that all the segments for each of the digits are connected together. Additionally, either the anodes or the cathodes of the LEDs for each digit are connected together. In this case, we have a <a href="https://lastminuteengineers.com/seven-segment-arduino-tutorial/">common cathode display</a>. This means we can only turn a single set of segments on at a time, effectively, we can only send one number to the display at a time. If it's an 8 for example we turn them all on, if it's 9, one fewer. To work around this, we need to multiplex the display. We'll turn off all digits but the first while sending the segments for the first position, turn all but the second digit off while sending the segments for the second digit, and so on. We'll do this fast enough for nobody to notice.</p>
+<p>We also need to consider power constraints. If we hook the segment pins directly (via current limiting resistors) to output pins supplying 3.3v, and the digit pins directly to open drain pins, the worst case, with 7 segments and the decimal point turned on, we'll get all 8 feeding into a single pin. I hooked up an ammeter, 3.3v, experimented with current-limiting resistors to get the brightness I was happy with and measured about 14mA. Our pins can sink about 20mA, so we'll be in spec. See the third display, for what to do when you're over the power budget and this is not an option.</p>
+<p><img src="/bubble-display-schematic.png" alt="LED Bubble Display Schematic" /></p>
+<p>This is how I connected mine. I chose those pins so that I could add a circuit board with minimal wiring that snapped onto the microcontroller board with pin headers. Your constraints might be different. </p>
+<p>Note also that you can get chips that do most of this for you. Two popular chips in the hobbyist community are the MAX7219 and TM1637.</p>
+<p>Let's look at the code. You can see the complete code for the displays in <a href="https://github.com/jspencer/custom-i2c-displays">the repo</a>. Much of it is the same as the <a href="https://proto.typi.ca/making-custom-i2c-displays/">previous display</a>, so check that for an explanation.</p>
+<p>We're going to use a couple new features for our IO pins. We turn on our digits by switching from high-impedance state to ground, a digital low signal. Our segment pins on the other hand, we turn on with a logic high value. It would be nice to consider the electrical reality only at setup time and once that is done, put it aside and deal more directly with the logical state of our display. You’ll see a similar idea when datasheets talk about “asserting” a pin. A signal may be active high, or active low. Asserting the signal is setting the active state. </p>
+<p>The <code>OutputSwitch</code> trait is what we want here.</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#65737e;">// Digit pins are defined like this
+</span><span style="color:#c0c5ce;">    pins_a
+        .pa8
+        .</span><span style="color:#96b5b4;">into_open_drain_output_with_state</span><span style="color:#c0c5ce;">(&amp;</span><span style="color:#b48ead;">mut</span><span style="color:#c0c5ce;"> pins_a.crh, State::High)
+        .</span><span style="color:#96b5b4;">downgrade</span><span style="color:#c0c5ce;">()
+        .</span><span style="color:#96b5b4;">into_active_low_switch</span><span style="color:#c0c5ce;">(), </span><span style="color:#65737e;">// ones
+// Segment pins are defined like this
+</span><span style="color:#c0c5ce;">    pins_a
+        .pa7
+        .</span><span style="color:#96b5b4;">into_push_pull_output_with_state</span><span style="color:#c0c5ce;">(&amp;</span><span style="color:#b48ead;">mut</span><span style="color:#c0c5ce;"> pins_a.crl, State::Low)
+        .</span><span style="color:#96b5b4;">downgrade</span><span style="color:#c0c5ce;">()
+        .</span><span style="color:#96b5b4;">into_active_high_switch</span><span style="color:#c0c5ce;">(), </span><span style="color:#65737e;">// g
+</span></code></pre>
+<p>We're calling <code>into_active_low_switch()</code> or <code>into_active_high_switch()</code> which returns a <code>Switch</code> type, so we can define our <code>Display</code> like so </p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#b48ead;">pub struct </span><span style="color:#c0c5ce;">Display {
+    </span><span style="color:#bf616a;">digits</span><span style="color:#c0c5ce;">: [Switch&lt;Pxx&lt;Output&lt;OpenDrain&gt;&gt;, ActiveLow&gt;; 4],
+    </span><span style="color:#bf616a;">segments</span><span style="color:#c0c5ce;">: [Switch&lt;Pxx&lt;Output&lt;PushPull&gt;&gt;, ActiveHigh&gt;; 8],
+}
+</span></code></pre>
+<p>This allows us to use the more natural <code>digit.on()</code> and <code>digit.off()</code>. The other thing you'll notice is that <code>output_with_state</code> lets us define the initial state of the pin right up front.</p>
+<p>There's one snag with the IO pins. To make wiring easier, we want to use PA15 which is by default used for JTAG. Since JTAG is often used for debugging, it's on by default. We are debugging over SWD, so we can disable JTAG to use PA15 as a general purpose pin. Since we're using the <a href="https://docs.rs/stm32f1xx-hal/0.7.0/stm32f1xx_hal/">HAL</a>, rather than our device just glitching or failing, the compiler will remind us if we try to use a pin that is set up incorrectly.</p>
+<p>Here's how we remap the pin.</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#b48ead;">let mut</span><span style="color:#c0c5ce;"> afio = device.</span><span style="color:#d08770;">AFIO</span><span style="color:#c0c5ce;">.</span><span style="color:#96b5b4;">constrain</span><span style="color:#c0c5ce;">(&amp;</span><span style="color:#b48ead;">mut</span><span style="color:#c0c5ce;"> rcc.apb2);
+</span><span style="color:#b48ead;">let </span><span style="color:#c0c5ce;">(pa15, _, _) = </span><span style="color:#d08770;">MAPR</span><span style="color:#c0c5ce;">::disable_jtag(&amp;</span><span style="color:#b48ead;">mut</span><span style="color:#c0c5ce;"> afio.mapr, pins_a.pa15, pins_b.pb3, pins_b.pb4);
+</span></code></pre>
+<p>We give <code>disable_jtag</code> the pin we got from <code>split</code>ing gpioa, and it returns us a nice shiny generic pin, we can use like the others.</p>
+<h3 id="driving-the-display">Driving the display</h3>
+<p>The most important new thing we will need is a timer to continually refresh the display. This means we'll want a new RTIC task. We'll set up TIM1, a generic timer to invoke our interrupt at a particular refresh rate.</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#b48ead;">let mut</span><span style="color:#c0c5ce;"> refresh_timer =
+    Timer::tim1(device.</span><span style="color:#d08770;">TIM1</span><span style="color:#c0c5ce;">, &amp;clocks, &amp;</span><span style="color:#b48ead;">mut</span><span style="color:#c0c5ce;"> rcc.apb2).</span><span style="color:#96b5b4;">start_count_down</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">280.</span><span style="color:#96b5b4;">hz</span><span style="color:#c0c5ce;">());
+refresh_timer.</span><span style="color:#96b5b4;">listen</span><span style="color:#c0c5ce;">(Event::Update);
+</span></code></pre>
+<p>We'll display a single digit of our display on each invocation of the interrupt, so four invocations will be a full cycle. We'll want at least 4 × 60hz, but 60hz is a bit annoying if you're moving your head, so let's go with 4 × 70hz, so 280hz. You can slow that right down to a few hertz to see exactly what is going on when you're debugging.</p>
+<p>The function to select the digit to turn on looks like this:</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">select_digit</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">display</span><span style="color:#c0c5ce;">: &amp;</span><span style="color:#b48ead;">mut</span><span style="color:#c0c5ce;"> Display, </span><span style="color:#bf616a;">digit_position</span><span style="color:#c0c5ce;">: </span><span style="color:#b48ead;">usize</span><span style="color:#c0c5ce;">) {
+    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> digit_select = </span><span style="color:#d08770;">1 </span><span style="color:#c0c5ce;">&lt;&lt; digit_position;
+    </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(i, digit) in display.digits.</span><span style="color:#96b5b4;">iter_mut</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">enumerate</span><span style="color:#c0c5ce;">() {
+        </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">(digit_select &gt;&gt; i) &gt; </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">{
+            digit.</span><span style="color:#96b5b4;">on</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">unwrap</span><span style="color:#c0c5ce;">();
+        } </span><span style="color:#b48ead;">else </span><span style="color:#c0c5ce;">{
+            digit.</span><span style="color:#96b5b4;">off</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">unwrap</span><span style="color:#c0c5ce;">();
+        }
+    }
+}
+</span></code></pre>
+<p>We're making use of <code>on()</code> and <code>off()</code> from <code>switch_hal</code> that I mentioned, to make this a little more readable.</p>
+<p>Here's our new set of shared resources:</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">Resources {
+    </span><span style="color:#bf616a;">i2c</span><span style="color:#c0c5ce;">: I2C1,
+    </span><span style="color:#bf616a;">display</span><span style="color:#c0c5ce;">: Display,
+    </span><span style="color:#bf616a;">refresh_timer</span><span style="color:#c0c5ce;">: CountDownTimer&lt;TIM1&gt;,
+    #[</span><span style="color:#bf616a;">init</span><span style="color:#c0c5ce;">([0,0,0,0])]
+    </span><span style="color:#bf616a;">display_buffer</span><span style="color:#c0c5ce;">: [</span><span style="color:#b48ead;">u8</span><span style="color:#c0c5ce;">; MESSAGE_LENGTH],
+}
+</span></code></pre>
+<p>The i2c event task will fill the display buffer, which will be shared with our display task.</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#c0c5ce;">#[</span><span style="color:#bf616a;">task</span><span style="color:#c0c5ce;">(binds = I2C1_EV, resources = [i2c, display_buffer], priority = 2)]
+
+#[</span><span style="color:#bf616a;">task</span><span style="color:#c0c5ce;">(binds = TIM1_UP, resources = [refresh_timer, display, display_buffer], priority = 1)]
+</span></code></pre>
+<p>The <code>i2c</code> device, the <code>display</code> and the <code>refresh_timer</code> are initialized by init and only used in one task each, so we don't need to worry about synchronization. The data we want to display will be shared in <code>display_buffer</code>. We want to read our incoming data right away, so we'll give the I²C task a higher priority than our display refresh timer. Since our <code>display_buffer</code> is shared between tasks with two different priorities, in the lower priority task, where we can be preempted, RTIC will give us a mutex proxy object we can use to access the resource. We'll ignore the fact that in this very particular case, our 4 bytes of data should be in a single, aligned machine word, so our access should be atomic anyway. This code will continue to work if we were to add a byte to our buffer. </p>
+<p>In the highest priority task this resource appears in, our I²C events task, we can write to the buffer directly, since we won't be preempted.</p>
+<p>Here's the complete task:</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#c0c5ce;">#[</span><span style="color:#bf616a;">task</span><span style="color:#c0c5ce;">(binds = TIM1_UP, resources = [refresh_timer, display, display_buffer], priority = 1)]
+</span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">tim1_up</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">c</span><span style="color:#c0c5ce;">: tim1_up::Context) {
+    </span><span style="color:#b48ead;">static mut </span><span style="color:#d08770;">DISPLAY_DIGIT</span><span style="color:#c0c5ce;">: </span><span style="color:#b48ead;">usize </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+    </span><span style="color:#b48ead;">let mut</span><span style="color:#c0c5ce;"> display = c.resources.display;
+    </span><span style="color:#b48ead;">let mut</span><span style="color:#c0c5ce;"> display_buffer = c.resources.display_buffer;
+
+    </span><span style="color:#b48ead;">let mut</span><span style="color:#c0c5ce;"> frame: </span><span style="color:#b48ead;">u8 </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+    display_buffer.</span><span style="color:#96b5b4;">lock</span><span style="color:#c0c5ce;">(|</span><span style="color:#bf616a;">buf</span><span style="color:#c0c5ce;">| {
+        frame = buf[*</span><span style="color:#d08770;">DISPLAY_DIGIT</span><span style="color:#c0c5ce;">];
+    });
+    </span><span style="color:#96b5b4;">select_digit</span><span style="color:#c0c5ce;">(&amp;</span><span style="color:#b48ead;">mut</span><span style="color:#c0c5ce;"> display, *</span><span style="color:#d08770;">DISPLAY_DIGIT</span><span style="color:#c0c5ce;">);
+    </span><span style="color:#96b5b4;">output_segments</span><span style="color:#c0c5ce;">(&amp;</span><span style="color:#b48ead;">mut</span><span style="color:#c0c5ce;"> display, frame);
+
+    *</span><span style="color:#d08770;">DISPLAY_DIGIT </span><span style="color:#c0c5ce;">+= </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">DISPLAY_DIGIT </span><span style="color:#c0c5ce;">&gt;= </span><span style="color:#d08770;">MESSAGE_LENGTH </span><span style="color:#c0c5ce;">{
+        *</span><span style="color:#d08770;">DISPLAY_DIGIT </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+    }
+    c.resources.refresh_timer.</span><span style="color:#96b5b4;">clear_update_interrupt_flag</span><span style="color:#c0c5ce;">();
+}
+</span></code></pre>
+<p>We're keeping track of which digit we are displaying in a <code>static mut</code> variable which will persist across interrupt invocations. Each time we hit the interrupt, we grab a byte for a single digit, turn on that digit in the display, output the segments, and increment the digit for the next pass. Here we might also want to do some data transformation. For my purposes, I wanted to do the conversion on the host system, so we're just dumping the bits to the segments. They are arranged as standard 7-segment display a–f plus the decimal point, but that is not a particularly useful mapping. You could create a kind of &quot;font&quot; table mapping numbers to segments for numerals. It might be nice for the first byte sent from the host to specify decimal, hexadecimal, or raw mode. One tip if you do this, you might consider up-front how you want to handle the difference between displaying a zero and no value at all.</p>
+<h3 id="getting-the-message">Getting the message</h3>
+<p>RTIC and the Rust compiler will help us keep track of where we need mutually exclusive access to a resource, but it's up to us to make sure that we keep everything logically consistent for our application. For example, we could update our buffer after each byte received from our host, after all, it's going to be fast enough, and it won't really matter if we're displaying half of one value and half of another for a split second. (I am chuckling to myself that I'm getting into <a href="https://en.wikipedia.org/wiki/Screen_tearing">screen tearing</a> when talking about a 7 segment LED display.) Worse though, might be if communication is interrupted, or the host just sends an incomplete message. So let's not send the message to the display until we get a complete payload from the host.</p>
+<p>We'll clear at the beginning of the transaction.</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;"> sr1.</span><span style="color:#96b5b4;">addr</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">bit_is_set</span><span style="color:#c0c5ce;">() {
+    *</span><span style="color:#d08770;">READ_COUNT </span><span style="color:#c0c5ce;">= </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+    *</span><span style="color:#d08770;">PAYLOAD </span><span style="color:#c0c5ce;">= [</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; </span><span style="color:#d08770;">MESSAGE_LENGTH</span><span style="color:#c0c5ce;">];
+    i2c.sr1.</span><span style="color:#96b5b4;">read</span><span style="color:#c0c5ce;">();
+    i2c.sr2.</span><span style="color:#96b5b4;">read</span><span style="color:#c0c5ce;">();
+}
+</span></code></pre>
+<p>We'll ignore extra bytes if the host sends too many.</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;"> sr1.</span><span style="color:#96b5b4;">rx_ne</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">bit_is_set</span><span style="color:#c0c5ce;">() {
+    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> rx = i2c.dr.</span><span style="color:#96b5b4;">read</span><span style="color:#c0c5ce;">();
+    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">READ_COUNT </span><span style="color:#c0c5ce;">&lt; </span><span style="color:#d08770;">MESSAGE_LENGTH </span><span style="color:#c0c5ce;">{
+        </span><span style="color:#d08770;">PAYLOAD</span><span style="color:#c0c5ce;">[*</span><span style="color:#d08770;">READ_COUNT</span><span style="color:#c0c5ce;">] = rx.</span><span style="color:#96b5b4;">bits</span><span style="color:#c0c5ce;">() as </span><span style="color:#b48ead;">u8</span><span style="color:#c0c5ce;">;
+    }
+    *</span><span style="color:#d08770;">READ_COUNT </span><span style="color:#c0c5ce;">+= </span><span style="color:#d08770;">1</span><span style="color:#c0c5ce;">;
+}
+</span></code></pre>
+<p>We'll write to the buffer at the end of the message.</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;"> sr1.</span><span style="color:#96b5b4;">stopf</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">bit_is_set</span><span style="color:#c0c5ce;">() {
+    </span><span style="color:#b48ead;">if </span><span style="color:#c0c5ce;">*</span><span style="color:#d08770;">READ_COUNT </span><span style="color:#c0c5ce;">&gt; </span><span style="color:#d08770;">0 </span><span style="color:#c0c5ce;">{
+        *display_buffer = *</span><span style="color:#d08770;">PAYLOAD</span><span style="color:#c0c5ce;">;
+    }
+    i2c.sr1.</span><span style="color:#96b5b4;">read</span><span style="color:#c0c5ce;">();
+    i2c.cr1.</span><span style="color:#96b5b4;">modify</span><span style="color:#c0c5ce;">(|_, </span><span style="color:#bf616a;">w</span><span style="color:#c0c5ce;">| {
+        w.</span><span style="color:#96b5b4;">ack</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">set_bit</span><span style="color:#c0c5ce;">();
+        w.</span><span style="color:#96b5b4;">stop</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">clear_bit</span><span style="color:#c0c5ce;">()
+    });
+}
+</span></code></pre><h3 id="using-the-display">Using the display</h3>
+<p>Let's try hooking up our display. Let's hook it up to an Arduino again, but this time we'll send random bytes for that alien microprocessor look.</p>
+<pre style="background-color:#2b303b;">
+<code class="language-c" data-lang="c"><span style="color:#b48ead;">#include </span><span style="color:#c0c5ce;">&lt;</span><span style="color:#a3be8c;">Wire.h</span><span style="color:#c0c5ce;">&gt;
+
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">setup</span><span style="color:#c0c5ce;">() {
+  </span><span style="color:#bf616a;">randomSeed</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">analogRead</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">));
+  Wire.</span><span style="color:#bf616a;">begin</span><span style="color:#c0c5ce;">();
+}
+
+byte randNumber;
+
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">loop</span><span style="color:#c0c5ce;">() {
+  Wire.</span><span style="color:#bf616a;">beginTransmission</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">0x34</span><span style="color:#c0c5ce;">);
+  </span><span style="color:#b48ead;">for </span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">int</span><span style="color:#c0c5ce;"> i = </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">; i &lt; </span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">; i++) {
+    randNumber = </span><span style="color:#bf616a;">random</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">256</span><span style="color:#c0c5ce;">);
+    Wire.</span><span style="color:#bf616a;">write</span><span style="color:#c0c5ce;">(randNumber);
+  }
+  Wire.</span><span style="color:#bf616a;">endTransmission</span><span style="color:#c0c5ce;">();
+  </span><span style="color:#bf616a;">delay</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">20</span><span style="color:#c0c5ce;">);
+}
+</span></code></pre><div class="loopvid">
+    <video autoplay loop muted playsinline>
+        <source src="https:&#x2F;&#x2F;proto.typi.ca&#x2F;vid&#x2F;pink-led-bar.mp4" type="video/mp4" alt="random led segment display">
+    </video>
+</div>
+<p>Great, now let's try hooking up to the Raspberry Pi. You can check the <a href="https://pinout.xyz/">pinout here</a>. It looks like we need pins 1(3V),3(SDA - Data),5(SCL - Clock), and 6(Ground).</p>
+<p>Let's run <code>i2cdetect</code> from the <a href="https://i2c.wiki.kernel.org/index.php/I2C_Tools">i2ctools package</a></p>
+<pre style="background-color:#2b303b;">
+<code class="language-sh" data-lang="sh"><span style="color:#bf616a;">pi@koroks:~</span><span style="color:#c0c5ce;"> $ i2cdetect</span><span style="color:#bf616a;"> -y</span><span style="color:#c0c5ce;"> 1
+     </span><span style="color:#bf616a;">0</span><span style="color:#c0c5ce;">  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+</span><span style="color:#bf616a;">00:</span><span style="color:#c0c5ce;">          -- -- -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">10:</span><span style="color:#c0c5ce;"> -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">20:</span><span style="color:#c0c5ce;"> -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">30:</span><span style="color:#c0c5ce;"> -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">40:</span><span style="color:#c0c5ce;"> -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">50:</span><span style="color:#c0c5ce;"> -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">60:</span><span style="color:#c0c5ce;"> -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">70:</span><span style="color:#c0c5ce;"> -- -- -- -- -- -- -- --      
+</span></code></pre>
+<p>We don't show up, that's no fun.</p>
+<p>We don't show up because while we do respond with the ACK signal when we match our address, and when we receive a byte, we are currently not doing anything when the master device asks us to reply. Linux mainly deals with SMBus devices. SMBus is a flavour of I²C with a few extra rules and expectations. I²C scanners usually send a test byte and request that we transmit.</p>
+<p>To handle this, all we need to do is reply when transmit is expected (TX_E), and the byte transfer is not finished (BTF).</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;"> sr1.</span><span style="color:#96b5b4;">tx_e</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">bit_is_set</span><span style="color:#c0c5ce;">() &amp;&amp; sr1.</span><span style="color:#96b5b4;">btf</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">bit_is_clear</span><span style="color:#c0c5ce;">() {
+    i2c.dr.</span><span style="color:#96b5b4;">write</span><span style="color:#c0c5ce;">(|</span><span style="color:#bf616a;">w</span><span style="color:#c0c5ce;">| w.</span><span style="color:#96b5b4;">dr</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">bits</span><span style="color:#c0c5ce;">(</span><span style="color:#d08770;">4</span><span style="color:#c0c5ce;">));
+}
+</span></code></pre>
+<p>Let's reply with 4. 4 is a good number.</p>
+<pre style="background-color:#2b303b;">
+<code class="language-sh" data-lang="sh"><span style="color:#bf616a;">pi@koroks:~</span><span style="color:#c0c5ce;"> $ i2cdetect</span><span style="color:#bf616a;"> -y</span><span style="color:#c0c5ce;"> 1
+     </span><span style="color:#bf616a;">0</span><span style="color:#c0c5ce;">  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+</span><span style="color:#bf616a;">00:</span><span style="color:#c0c5ce;">          -- -- -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">10:</span><span style="color:#c0c5ce;"> -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">20:</span><span style="color:#c0c5ce;"> -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">30:</span><span style="color:#c0c5ce;"> -- -- -- -- 34 -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">40:</span><span style="color:#c0c5ce;"> -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">50:</span><span style="color:#c0c5ce;"> -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">60:</span><span style="color:#c0c5ce;"> -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+</span><span style="color:#bf616a;">70:</span><span style="color:#c0c5ce;"> -- -- -- -- -- -- -- --  
+</span></code></pre>
+<p>Now we show up!</p>
+<p>Now we can use the standard tools to talk to our display. As an example, let's use <code>i2cset</code>. We need to tell it to use i2c device 1, set our address 0x34, and give it 4 bytes of data corresponding to the raw segments we want to turn on.</p>
+<pre style="background-color:#2b303b;">
+<code class="language-sh" data-lang="sh"><span style="color:#bf616a;">pi@koroks:~</span><span style="color:#c0c5ce;"> $ i2cset</span><span style="color:#bf616a;"> -y</span><span style="color:#c0c5ce;"> 1 0x34 0x5B 0x6d 0x63 0x39 i
+</span></code></pre>
+<p><img src="/i2c-led-raspi-ferris.jpeg" alt="Ferris watching over our I²C LED display" /></p>
+<p>Koroks courtesy of my 11-year-old. Ferris The Squishable Rustacean by <a href="http://edunham.net">E. Dunham</a></p>
+
+</article>
+<div class="related">
+  <ul class="related-posts">
+    <li class="previous">
+      
+      <div>⟻ Earlier </div>
+      <a href="https:&#x2F;&#x2F;proto.typi.ca&#x2F;making-custom-i2c-displays&#x2F;">Making Custom I²C Displays</a>
+      
+    </li>
+    <li class="next">
+      
+      <div> Later ⟼</div>
+      <a href="https:&#x2F;&#x2F;proto.typi.ca&#x2F;rust-i2c-vfd&#x2F;">I²C VFD Display using Rust on an Arm Cortex MCU</a>
+      
+    </li>
+  </ul>
+</div>
+
+
+      
+      <footer role="contentinfo">
+        <hr />
+        
+        
+        <small>
+          <a href="/rss.xml"><svg class="icon" width="32" height="32" viewBox="0 0 32 32">
+            <title>rss</title>
+            <path d="M4.259 23.467c-2.35 0-4.259 1.917-4.259 4.252 0 2.349 1.909 4.244 4.259 4.244 2.358 0 4.265-1.895 4.265-4.244-0-2.336-1.907-4.252-4.265-4.252zM0.005 10.873v6.133c3.993 0 7.749 1.562 10.577 4.391 2.825 2.822 4.384 6.595 4.384 10.603h6.16c-0-11.651-9.478-21.127-21.121-21.127zM0.012 0v6.136c14.243 0 25.836 11.604 25.836 25.864h6.152c0-17.64-14.352-32-31.988-32z"></path>
+          </svg> RSS Feed</a><br />
+        </small>
+        <small>Built with <a href="https://www.getzola.org/">Zola</a>.<br />
+          
+        </small>
+        
+      </footer>
+      
+
+    </main>
+    
+    
+  </body>
+</html>
+

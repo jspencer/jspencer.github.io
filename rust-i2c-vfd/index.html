@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+  
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>I²C VFD Display using Rust on an Arm Cortex MCU &middot; Prototypica</title>
+    <meta name="description" content="A blog about hardware and software." />
+    <link rel="shortcut icon"  href="https://proto.typi.ca/favicon.ico" />
+    <link rel="alternate" type="application/rss+xml" title="RSS" href="https:&#x2F;&#x2F;proto.typi.ca&#x2F;rss.xml">
+
+    <style>html,body{background:#f5f5ef;color:#382f21;font-family:-apple-system,blinkmacsystemfont,"Helvetica Neue","Helvetica","Segoe UI",roboto,oxygen-sans,ubuntu,cantarell,"Helvetica Neue",sans-serif}a,a:visited{color:darkred;text-decoration:none}a:hover{text-decoration:underline}p{font-size:1rem;line-height:1.5em}main{margin:auto;max-width:54rem;padding:0.8rem}pre{background:white;overflow:auto;padding:1rem}pre code{background-color:unset;line-height:1.5em}code{background-color:#f3ede2}blockquote{background-color:#e4fbe0;border-color:#bef4b3;padding:2rem}@media (max-width: 1000px){blockquote{padding:4px;margin:0}}td{border:1px solid #2d2d2d;padding:10px}img{height:auto;max-width:100%}.homepage-list{list-style:none;padding:1rem 0}.homepage-list li{align-items:center;display:flex;flex-wrap:wrap;justify-content:space-between;margin-bottom:10px}@media (max-width: 38rem){.homepage-list li a{width:100%}}.icon{display:inline-block;width:1em;height:1em;stroke-width:0;stroke:currentColor;fill:currentColor}.related{padding-top:2rem;padding-bottom:2rem}.related-posts{padding-left:0;list-style:none;display:flex;justify-content:space-between}.related-posts li{flex:1}.related-posts li.next{text-align:right}.related-posts h3{margin-top:0}.related-posts li small{font-size:75%;color:#382f21}.related-posts li small{color:inherit}
+</style>
+
+    <meta property="og:site_name" content="Prototypica">
+      <meta name="author" content="Jason Spencer" />
+      <meta property="og:title" content="I²C VFD Display using Rust on an Arm Cortex MCU">
+      <meta property="og:description" content="">
+      <meta property="og:url" content="https://proto.typi.ca/rust-i2c-vfd/">
+      <meta property="og:image" content="">
+
+      <meta property="og:type" content="article" />
+        <meta property="article:published_time" content="2021-05-25T00:00:00+00:00" />
+
+      <link rel="prev" href="https://proto.typi.ca/rust-i2c-bubble-display/" />
+      <link rel="next" href="https://proto.typi.ca/late-night-latches/" />
+    
+
+  </head>
+  
+
+  <body>
+    <main id="main" role="main">
+
+      
+      <header role="banner">
+        <h3 style="margin-top:0;">
+          <a href="https://proto.typi.ca" title="Home">Prototypica</a>
+          <br /><small>A blog about hardware and software.</small>
+        </h3>
+      </header>
+      <hr />
+      
+
+      
+<article>
+  <h1>I²C VFD Display using Rust on an Arm Cortex MCU</h1>
+
+  
+    <p style="font-size:90%;"><time datetime="2021-05-25T00:00:00+00:00">May 25, 2021</time> — <a href="https://twitter.com/needtungsten">Jason Spencer</a></p>
+  
+
+  <p><img src="/vfd-with-mcu.jpeg" alt="1234 on VFD" /></p>
+<p>In the previous two blog posts we have built an <a href="https://proto.typi.ca/making-custom-i2c-displays/">LED bar display</a> and a <a href="https://proto.typi.ca/rust-i2c-bubble-display/">7-segment LED display</a>. We're taking a break from LEDs for our third display and basking in the blue-green glow of a Vacuum Fluorescent Display. </p>
+<p>If you pull one out of an old microwave, VCR, or stereo you might not have a datasheet. Mine are from a <a href="https://www.goldmine-elec-products.com/prodinfo.asp?number=G2200">junk box</a>, and I was not able to find any documentation.</p>
+<p>Michał Słomkowski has a great walkthrough detailing how to <a href="https://slomkowski.eu/tutorials/determining-the-pinout-of-the-unknown-vacuum-fluorescent-display/">determine the pinout and power requirements of your VFD</a>.</p>
+<p>These displays require more power than our LEDs, and we're certainly not going to be able to hook this up directly to our microcontroller. One way to handle this is to use a dedicated VFD control chip such as the MAX6921. </p>
+<p><img src="/MAX6921.jpeg" alt="MAX6921 and Socket, weird to have a picture of a chip we are not even using" /></p>
+<p>Instead, we are going to use a bunch more components and hook it up <a href="https://microcontrollerslab.com/how-to-use-transistor-as-a-switch/">using transistors as switches</a>. We'll hook the microcontroller up to the base of the transistors which will turn on a higher voltage path powering the display.</p>
+<h3 id="oops-all-anodes">Oops, All Anodes</h3>
+<p>Unlike our LEDs, each of the segments of the VFD is an anode. The grids that turn each digit on and off are also anodes.</p>
+<p>There are a few different ways to hook it up. This is what I decided on.</p>
+<p><img src="/vfd-segment-schematic.png" alt="VFD segment schematic" /></p>
+<p>You can use a general purpose BJT or MOSFET here. I used 2N3904 transistors because I had a bunch of them, and I also used some 2N2222s because I like how many 2s are in the name. It's the weekend, we don't need to justify ourselves.</p>
+<p>We'll need one of these for each segment and each grid pin.</p>
+<p><img src="/vfd-trans.jpeg" alt="VFD transistors on a breadboard" /></p>
+<p>We can see that with this configuration the display will default to being powered. When the transistor is on, the segment or grid will be pulled low. This means our MCU outputs will be active-low.</p>
+<p>What about the cathode? VFDs, like other vacuum tubes, have hot filaments running across the grids. This is the cathode. We'll keep it steadily powered. I have not tried it, but these displays should run more evenly if you drive the filament with alternating current. We will get away with DC here but if you have an appropriate transformer or some other source of AC, it would be worth experimenting.</p>
+<p>In my case, the anodes require 8.2V, and I ended up needing 0.8V across the filament. I used a 12V power supply with an adjustable buck converter for a high voltage rail for the segments and grids. I then added a 3V regulator to set up another power rail for the MCU and the filament. I added a resistor plus a little slider pot to trim down the filament until it was just below the point where it would glow red.</p>
+<h3 id="software">Software</h3>
+<p>This particular display really wants to be a clock, so we will need to adapt our code on the host to handle the fact that the most significant digit only goes up to 1. We also have the colon segment which I didn't need, so I just left it off.</p>
+<p>On the firmware side, we have pretty much everything we need already built for the previous displays. The only real changes needed are to alter the segments to be active low and start out in the HIGH state. You can find the code <a href="https://github.com/jspencer/custom-i2c-displays">here</a>.</p>
+
+</article>
+<div class="related">
+  <ul class="related-posts">
+    <li class="previous">
+      
+      <div>⟻ Earlier </div>
+      <a href="https:&#x2F;&#x2F;proto.typi.ca&#x2F;rust-i2c-bubble-display&#x2F;">Rust I²C Bubble Display</a>
+      
+    </li>
+    <li class="next">
+      
+      <div> Later ⟼</div>
+      <a href="https:&#x2F;&#x2F;proto.typi.ca&#x2F;late-night-latches&#x2F;">Late Night Latches</a>
+      
+    </li>
+  </ul>
+</div>
+
+
+      
+      <footer role="contentinfo">
+        <hr />
+        
+        
+        <small>
+          <a href="/rss.xml"><svg class="icon" width="32" height="32" viewBox="0 0 32 32">
+            <title>rss</title>
+            <path d="M4.259 23.467c-2.35 0-4.259 1.917-4.259 4.252 0 2.349 1.909 4.244 4.259 4.244 2.358 0 4.265-1.895 4.265-4.244-0-2.336-1.907-4.252-4.265-4.252zM0.005 10.873v6.133c3.993 0 7.749 1.562 10.577 4.391 2.825 2.822 4.384 6.595 4.384 10.603h6.16c-0-11.651-9.478-21.127-21.121-21.127zM0.012 0v6.136c14.243 0 25.836 11.604 25.836 25.864h6.152c0-17.64-14.352-32-31.988-32z"></path>
+          </svg> RSS Feed</a><br />
+        </small>
+        <small>Built with <a href="https://www.getzola.org/">Zola</a>.<br />
+          
+        </small>
+        
+      </footer>
+      
+
+    </main>
+    
+    
+  </body>
+</html>
+
